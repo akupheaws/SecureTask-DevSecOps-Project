@@ -143,7 +143,7 @@ resource "aws_db_instance" "main" {
   storage_type          = "gp3"
   # VIDEO CHALLENGE 2: set this to true to pass CKV2_AKUPHE_2.
   # The provisioning preflight blocks Terraform apply while it is false.
-  storage_encrypted               = false
+  storage_encrypted               = true
   db_name                         = "securetask"
   username                        = "securetask"
   manage_master_user_password     = true

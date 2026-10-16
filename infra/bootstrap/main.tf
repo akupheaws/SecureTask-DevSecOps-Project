@@ -47,7 +47,7 @@ resource "aws_s3_bucket_public_access_block" "state" {
   block_public_acls = true
   # VIDEO CHALLENGE 1: set this to true to pass CKV2_AKUPHE_1.
   # The provisioning preflight blocks bootstrap while it is false.
-  block_public_policy     = false
+  block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 
