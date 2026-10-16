@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: securetask
+      POSTGRES_DB: securetask
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-local-development-only}
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securetask"]
+      interval: 5s
+      retries: 15
+  app:
+    build: .
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      DB_HOST: db
+      DB_USER: securetask
+      DB_NAME: securetask
+      DB_PASSWORD: ${DB_PASSWORD:-local-development-only}
+      NODE_ENV: production
+      ALLOW_HTTP_DEMO: "true"
+    depends_on:
+      db: {condition: service_healthy}
+volumes:
+  postgres:

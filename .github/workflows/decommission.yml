@@ -1,0 +1,77 @@
+name: Decommission all project infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      aws_account_id:
+        description: "12-digit AWS account containing this project"
+        required: true
+        type: string
+      confirmation:
+        description: "Type DESTROY securetask (permanently deletes data and state)"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: securetask-aws
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: infrastructure-plan
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with: {terraform_version: "1.15.8", terraform_wrapper: false}
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Review all four Terraform roots
+        run: python3 scripts/decommission.py plan --account "$ACCOUNT" --bucket "${BUCKET:-securetask-state-$ACCOUNT}" --repository "$REPOSITORY" --confirmation "$CONFIRMATION"
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          REPOSITORY: ${{ github.repository }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: decommission-review
+          path: reports/decommission/
+          retention-days: 1
+  destroy:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: decommission
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: decommission-review, path: reports/decommission}
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with: {terraform_version: "1.15.8", terraform_wrapper: false}
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Destroy reviewed resources and project data
+        run: python3 scripts/decommission.py destroy --account "$ACCOUNT" --bucket "${BUCKET:-securetask-state-$ACCOUNT}" --repository "$REPOSITORY" --confirmation "$CONFIRMATION"
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          REPOSITORY: ${{ github.repository }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: decommission-result
+          path: reports/decommission/
+          retention-days: 7

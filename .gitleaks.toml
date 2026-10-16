@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Verified public commit SHA for aws-actions/configure-aws-credentials v4; the key name causes a generic-api-key false positive."
+condition = "AND"
+paths = ['''^security/actions\.lock\.json$''']
+regexTarget = "secret"
+regexes = ['''^ff717079ee2060e4bcee96c4779b553acc87447c$''']

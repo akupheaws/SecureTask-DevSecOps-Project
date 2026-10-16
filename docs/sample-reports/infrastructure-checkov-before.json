@@ -1,0 +1,40 @@
+{
+  "findings": [
+    {
+      "title": "[checkov] Ensure all S3 public access protections are enabled",
+      "description": "Ensure all S3 public access protections are enabled\nResource: aws_s3_bucket_public_access_block.state",
+      "severity": "High",
+      "unique_id_from_tool": "3fad1a9449d6221a70a8924162516239f2114421497279d65ad3dab842cd712c",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/bootstrap/main.tf",
+      "line": 44
+    },
+    {
+      "title": "[checkov] Ensure RDS databases use storage encryption",
+      "description": "Ensure RDS databases use storage encryption\nResource: aws_db_instance.main[\"production\"]",
+      "severity": "High",
+      "unique_id_from_tool": "d36b382a03298f2bbfd2c3e2f076d3c87a2e912bfc2d634cc0a07fd7cc80e649",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/platform/main.tf",
+      "line": 135
+    },
+    {
+      "title": "[checkov] Ensure RDS databases use storage encryption",
+      "description": "Ensure RDS databases use storage encryption\nResource: aws_db_instance.main[\"staging\"]",
+      "severity": "High",
+      "unique_id_from_tool": "d36b382a03298f2bbfd2c3e2f076d3c87a2e912bfc2d634cc0a07fd7cc80e649",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/platform/main.tf",
+      "line": 135
+    }
+  ]
+}

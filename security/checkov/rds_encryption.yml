@@ -1,0 +1,10 @@
+metadata:
+  id: CKV2_AKUPHE_2
+  name: Ensure RDS databases use storage encryption
+  category: ENCRYPTION
+  severity: HIGH
+definition:
+  cond_type: attribute
+  resource_types: [aws_db_instance]
+  attribute: storage_encrypted
+  operator: is_true

@@ -1,0 +1,51 @@
+name: Manual source checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: source-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: securetask
+          POSTGRES_DB: securetask
+          POSTGRES_PASSWORD: ci-test-only
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U securetask" --health-interval 5s --health-retries 15
+    env:
+      DB_PASSWORD: ci-test-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: "24", cache: npm }
+      - run: npm ci
+      - run: npm run build && npm test
+      - run: python3 -m unittest discover -s tests -p '*_test.py'
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [semgrep, gitleaks, osv, checkov, hadolint]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0, persist-credentials: false }
+      - run: python3 scripts/scan.py --tools "$TOOL"
+        env: { TOOL: "${{ matrix.tool }}" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: manual-source-${{ matrix.tool }}
+          path: reports/
+          retention-days: 7
+      - run: python3 scripts/policy.py --tools "$TOOL"
+        env: { TOOL: "${{ matrix.tool }}" }

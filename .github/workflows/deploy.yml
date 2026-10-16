@@ -1,0 +1,45 @@
+name: Deploy immutable ECS release
+on:
+  workflow_call:
+    inputs:
+      environment: { type: string, required: true }
+      image: { type: string, required: true }
+permissions:
+  contents: read
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }} on ECS Fargate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deployment_summary.outputs.url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with: { terraform_version: "1.15.8", terraform_wrapper: false }
+      - run: python3 scripts/initialize-service.py --environment "$ENVIRONMENT" --image "$IMAGE" --bucket "$STATE_BUCKET"
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE: ${{ inputs.image }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      - run: python3 scripts/deploy.py --cluster "$CLUSTER" --service "$SERVICE" --image "$IMAGE" --url "$APP_URL"
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CLUSTER: ${{ vars.ECS_CLUSTER }}
+          SERVICE: ${{ vars.ECS_SERVICE }}
+          IMAGE: ${{ inputs.image }}
+      - name: Publish application URL and next step
+        id: deployment_summary
+        run: python3 scripts/release_review.py deployed --environment "$ENVIRONMENT" --url "$APP_URL" --image "$IMAGE"
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          APP_URL: ${{ vars.APP_URL }}
+          IMAGE: ${{ inputs.image }}

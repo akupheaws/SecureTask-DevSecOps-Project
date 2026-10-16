@@ -1,0 +1,19 @@
+rules:
+  - id: securetask.sql-concatenation
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: Use parameterized SQL; interpolated or concatenated query strings can expose SQL injection.
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`...${$INPUT}...`, ...)
+          - pattern: $DB.query($SQL + $INPUT, ...)
+    metadata:
+      cwe: CWE-89
+      confidence: HIGH
+  - id: securetask.no-eval
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: Do not evaluate dynamically supplied JavaScript.
+    pattern: eval(...)
+    metadata:
+      cwe: CWE-95

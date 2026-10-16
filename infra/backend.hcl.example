@@ -1,0 +1,4 @@
+bucket = "securetask-state-YOUR_ACCOUNT"
+region = "us-east-1"
+encrypt = true
+use_lockfile = true

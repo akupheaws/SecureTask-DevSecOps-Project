@@ -1,0 +1,136 @@
+{
+  "findings": [
+    {
+      "title": "[checkov] Ensure S3 bucket has ignore public ACLs enabled",
+      "description": "Ensure S3 bucket has ignore public ACLs enabled\nResource: aws_s3_bucket_public_access_block.demo",
+      "severity": "High",
+      "unique_id_from_tool": "40751747ff30a0710c985b77dacd3c614165755f3f0fdf6e0ade8c0adbd85092",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 5
+    },
+    {
+      "title": "[checkov] Ensure S3 bucket has 'restrict_public_buckets' enabled",
+      "description": "Ensure S3 bucket has 'restrict_public_buckets' enabled\nResource: aws_s3_bucket_public_access_block.demo",
+      "severity": "High",
+      "unique_id_from_tool": "51c9673c5583bf99dc56381fdf3b3323dab5493dbad30253731aefa30a3430b2",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 5
+    },
+    {
+      "title": "[checkov] Ensure S3 bucket has block public policy enabled",
+      "description": "Ensure S3 bucket has block public policy enabled\nResource: aws_s3_bucket_public_access_block.demo",
+      "severity": "High",
+      "unique_id_from_tool": "2de9e0e94d1777c89ff12adf9c82073d0034cb771629eabf4f629a8d4fb802cb",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 5
+    },
+    {
+      "title": "[checkov] Ensure S3 bucket has block public ACLS enabled",
+      "description": "Ensure S3 bucket has block public ACLS enabled\nResource: aws_s3_bucket_public_access_block.demo",
+      "severity": "High",
+      "unique_id_from_tool": "63e2b6fd7383db67bd9b8137133d26669f93e89f88f1ece569e082be650e24b3",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 5
+    },
+    {
+      "title": "[checkov] Ensure S3 buckets should have event notifications enabled",
+      "description": "Ensure S3 buckets should have event notifications enabled\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "6437105fce0bd4ad403c257d8c64621059966300ebe5c47f546c89649575e9ea",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure all data stored in the S3 bucket have versioning enabled",
+      "description": "Ensure all data stored in the S3 bucket have versioning enabled\nResource: aws_s3_bucket.demo",
+      "severity": "High",
+      "unique_id_from_tool": "4c4570de307e73d974c0e16074772733626359de29d153b5ab3d48f5eb63306c",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure that S3 buckets are encrypted with KMS by default",
+      "description": "Ensure that S3 buckets are encrypted with KMS by default\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "bcd44b13a73088a97f5291dd74cd643fa6a004be53b7fe3cd82ec00e424930b0",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure that an S3 bucket has a lifecycle configuration",
+      "description": "Ensure that an S3 bucket has a lifecycle configuration\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "d46cd83a14ed6a7548ecf54d8f1a7338cb3bbc396495bd59a92bb88350ed50fd",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure that S3 bucket has cross-region replication enabled",
+      "description": "Ensure that S3 bucket has cross-region replication enabled\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "3b44f99328dfae106174e1a5823ff774c0ed721f40541395389289c7fd8985a2",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure that S3 bucket has a Public Access block",
+      "description": "Ensure that S3 bucket has a Public Access block\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "bf2b96ad8a9eb49af7036eb85e7a2c6b292e4eb1efa0e902d04bb2f9aaf1d5b7",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    },
+    {
+      "title": "[checkov] Ensure the S3 bucket has access logging enabled",
+      "description": "Ensure the S3 bucket has access logging enabled\nResource: aws_s3_bucket.demo",
+      "severity": "Medium",
+      "unique_id_from_tool": "6698918bb6ae9b12654182561d0d73250ba4543ffff22e01b23ed343309c9da7",
+      "static_finding": true,
+      "dynamic_finding": false,
+      "active": true,
+      "verified": false,
+      "file_path": "/public-bucket.tf",
+      "line": 2
+    }
+  ]
+}

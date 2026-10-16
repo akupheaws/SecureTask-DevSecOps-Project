@@ -1,0 +1,3 @@
+region = "us-east-1"
+github_repository = "YOUR_OWNER/securetask-devsecops"
+allow_http_demo = true

@@ -1,0 +1,23 @@
+metadata:
+  id: CKV2_AKUPHE_1
+  name: Ensure all S3 public access protections are enabled
+  category: GENERAL_SECURITY
+  severity: HIGH
+definition:
+  and:
+    - cond_type: attribute
+      resource_types: [aws_s3_bucket_public_access_block]
+      attribute: block_public_acls
+      operator: is_true
+    - cond_type: attribute
+      resource_types: [aws_s3_bucket_public_access_block]
+      attribute: block_public_policy
+      operator: is_true
+    - cond_type: attribute
+      resource_types: [aws_s3_bucket_public_access_block]
+      attribute: ignore_public_acls
+      operator: is_true
+    - cond_type: attribute
+      resource_types: [aws_s3_bucket_public_access_block]
+      attribute: restrict_public_buckets
+      operator: is_true

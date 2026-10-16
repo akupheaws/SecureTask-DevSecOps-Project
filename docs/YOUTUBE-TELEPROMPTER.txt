@@ -1,0 +1,161 @@
+Generative AI has made it much easier to turn an idea into a working web application. We can build a frontend, connect an API, and add a database quickly.
+
+But how do we decide that application is ready for production?
+
+A working homepage tells us very little about exposed secrets, unsafe queries, vulnerable packages, or the security of the infrastructure underneath it.
+
+In this tutorial, we are going to make those checks part of the delivery process.
+
+Welcome to the channel. I'm Akuphe, and today we are building an end-to-end DevSecOps project on AWS using GitHub Actions, Terraform, Docker, and open-source security tools.
+
+We will run the application locally, let security checks stop our infrastructure deployment, fix the configuration, and then investigate two source-code findings. After the fixes pass, we will build and scan the image, deploy to staging, inspect it, and approve production.
+
+Let's start with the architecture so you can see how the entire project fits together.
+
+Our application is Secure Task By Akuphe. It is a task management application with a React frontend, an Express backend, and a PostgreSQL database. We can register an account, create a project, add tasks, and update their status.
+
+The source code lives in GitHub. GitHub Actions runs our workflows, and we trigger each top-level workflow manually so we can explain and inspect every stage during the tutorial.
+
+Terraform defines the AWS infrastructure in us-east-1. Checkov examines that configuration before the workflow authenticates to AWS or creates the Terraform state bucket. We also check the resolved platform plan before apply.
+
+Amazon S3 stores the encrypted, versioned Terraform state. The VPC provides public and private subnets, routing, and security groups. A NAT gateway gives resources in private subnets an outbound route for downloads and updates.
+
+Amazon ECR stores the application image after it passes the image security policy. Amazon ECS with Fargate runs that image in private application tasks, and Amazon RDS provides PostgreSQL for staging and production.
+
+Each environment has an Application Load Balancer with an AWS-generated URL. We will use those endpoints to inspect the application without setting up a custom domain.
+
+IAM controls permissions. Secrets Manager stores private credentials, and CloudWatch collects application logs and monitoring information.
+
+DefectDojo Community Edition runs on a private EC2 instance. Systems Manager provides the encrypted connection we use to reach its dashboard and upload release findings.
+
+The application is deployed to staging first. Once the automated checks pass, we inspect staging ourselves. A required approval then allows the same image digest to move to production.
+
+That is the delivery path. Now let's look at the security checks and the four issues we will fix along the way.
+
+We are using seven security tools, and each has a specific job.
+
+Semgrep checks source code for potentially unsafe patterns. We use it to identify our SQL injection and unsafe eval examples.
+
+Gitleaks looks for exposed credentials in Git history. Removing a secret from the latest file does not remove it from an earlier commit.
+
+OSV-Scanner checks dependency versions in the lockfile against known vulnerability data.
+
+Checkov examines Terraform for infrastructure misconfigurations. Our two custom policies require S3 public-access protections and RDS storage encryption.
+
+Hadolint checks the Dockerfile and its shell instructions for problems and build practices that need attention.
+
+Trivy scans the built container image for known vulnerabilities in operating-system and application packages. It runs before the image is published to ECR.
+
+ZAP runs against staging. We use its baseline scan to inspect reachable unauthenticated pages and responses. Logged-in workflows need additional testing beyond that baseline.
+
+Our first two issues are in the real Terraform configuration: one S3 public-access protection is disabled, and RDS storage encryption is disabled. These must be corrected before infrastructure provisioning can continue.
+
+The other two are controlled source-code exercises: an interpolated SQL query and unsafe use of eval. They are excluded from the deployed application image, but the release scan includes them for our demonstration.
+
+We will show the infrastructure findings in GitHub Actions, then show the source findings and their remediation history in DefectDojo.
+
+The most important lesson is to understand the security concept behind each tool: what risk it checks for, where it belongs, and how its result should affect a release.
+
+You can choose other tools for the same categories. Opengrep is another source-analysis option, TruffleHog detects secrets, KICS checks infrastructure, and Grype scans container packages. When replacing a scanner, verify its coverage, report format, failure behavior, and integration with your pipeline.
+
+Before we provision AWS, let's run the application locally and check the main features. Docker Compose will build the application and start it together with PostgreSQL.
+
+The readiness response confirms the backend can reach the database. Now I'll register a test account, create a project called DevSecOps Demo, and add a task called Verify local application.
+
+Our frontend, backend, and database are working together. We now have a functional baseline to compare with the application we will deploy to AWS. The local data stays on this computer.
+
+For GitHub, we need an account and Git authenticated through our terminal or IDE. Create an empty repository, push the complete project to main, and follow the repository setup in the runbook.
+
+Add the AWS access key ID, AWS secret access key, and the repository administration token as repository secrets. Temporary AWS credentials also need a session token. The runbook lists the exact names and permissions.
+
+Pushing code saves a revision. It does not start these workflows. We will use Run workflow to choose when each run begins.
+
+This first run starts with two deliberately incorrect infrastructure settings. Checkov will scan the Terraform source, and the policy gate should block the workflow before AWS authentication or state-bucket bootstrap.
+
+The first issue is in the S3 public-access configuration. The Block Public Policy setting is false. That alone does not automatically make the bucket public, but it disables this bucket-level protection against public policies. Our policy requires all four public-access protections to stay enabled.
+
+The second issue is RDS storage encryption. That setting is false, so the database configuration does not meet our encryption-at-rest requirement. This resource definition covers both staging and production.
+
+On a first installation, DefectDojo has not been provisioned yet. That is why we are reviewing these findings here in GitHub Actions.
+
+The provisioning jobs are skipped. Approval cannot override this failed security gate.
+
+We fix the configuration and keep the checks enabled. Fixing only one setting leaves the other policy blocking.
+
+Now I'll commit and push both corrections, then start a new provisioning run at the updated main commit. Re-running the old job would still check the old code.
+
+The infrastructure checks now pass. The workflow can continue to configure the approval environments and authenticate to the selected AWS account.
+
+When planning pauses for approval, I'll review the run and approve the infrastructure environment. This permits the state-bucket bootstrap and platform planning steps.
+
+The workflow checks whether the dedicated S3 state bucket exists. It creates it if needed, or verifies ownership and reuses it for this installation.
+
+Terraform then produces the platform plan. Checkov scans that resolved plan with the custom policies as another check before apply. Once the policy passes, we review the plan and approve the waiting apply job.
+
+After apply and Dojo setup complete, the workflow publishes the environment URLs and integration variables. The ECS application services are created by the later release, so an application URL can return a 503 response before that first release.
+
+DefectDojo is our place to review findings and their history. The scanners perform the checks, and the GitHub workflow enforces the policy.
+
+We connect through Systems Manager because this Dojo instance is private. The workflow has already prepared the product, scanner tests, and separate integration account for reporting.
+
+Now we can demonstrate the source-code findings.
+
+I am enabling the remediation exercises so Semgrep scans the two source examples alongside the application. The other source scanners still run their normal checks.
+
+The reports reach DefectDojo before the policy blocks the release. We can inspect the findings, while the release Docker build remains blocked.
+
+Under the default policy, High and Critical findings block a release. Secrets, incomplete scans, and failed reporting also block.
+
+The first example places input directly inside an SQL query string. That can let input change the meaning of the query. The fix is to keep the SQL text fixed and pass the search value as a separate parameter.
+
+The second example passes input to eval, which treats it as JavaScript. This function only needs a number, so we can convert the input and reject a value that is not finite.
+
+These are scan-only exercises. We keep them out of the deployed application image while using them to demonstrate detection, correction, and a clean rescan.
+
+I'll keep both files present, commit the fixes, and push. Removing the files or disabling the exercise scan would not demonstrate that the code was corrected.
+
+We are scanning the same files again at the new commit and reporting to the same Semgrep test in the remediation engagement.
+
+When the completed reimport finishes, the previous exercise findings should become mitigated. Their history remains available, so we can show what was found and when it was fixed.
+
+Other tools can still report findings that need review. We are checking that these two exercise issues are resolved and that the release policy passes.
+
+The workflow can now wait at the security-review approval. I'll review the reports and approve the image build.
+
+Docker builds the release image from the reviewed commit. Trivy scans the operating-system and application packages inside it. Those results go to DefectDojo, and the image policy must pass before ECR publishing.
+
+A blocking container finding stops the release before the push. If the image passes, the workflow publishes that exact scanned image to ECR without rebuilding it.
+
+It uses a unique commit-and-run tag and records the image digest. That digest identifies the image content we will deploy and promote.
+
+ECS Fargate pulls the approved image from ECR and runs it in staging behind the load balancer. The workflow performs smoke checks, then runs the ZAP baseline scan and reports its results to DefectDojo.
+
+Runtime reporting and policy must succeed before the staging review can complete.
+
+Now I'll inspect the application myself. I'll register a staging test account, sign in, create a project, add a task, change its status, and refresh to check the saved result.
+
+The automated checks have passed, and we have inspected the main user flow. I can now use Review deployments to approve the production environment.
+
+If something is wrong in staging, we reject production and investigate before another release.
+
+Production receives the same image digest tested in staging. I'll verify the production application at its own load balancer URL with a separate test account.
+
+We have evidence from infrastructure checks, source checks, image scanning, runtime scanning, and human review. That evidence applies to the checks we configured; secure design and further testing remain part of the work.
+
+When we have finished the demonstration, we can remove the project through the separate decommission workflow. It reviews what will be deleted and waits for approval before the destructive stage.
+
+This deletes the project's cloud infrastructure and data, so export anything you want to keep before approving it.
+
+The decommission result confirms the project resources have been removed. I will also remove the dedicated credentials when they are no longer needed.
+
+Today we started with a working local application and built a delivery process around it.
+
+We stopped two infrastructure misconfigurations before provisioning, fixed two source-code issues, tracked their remediation, scanned the container image, and tested staging before approving production.
+
+The idea to take away is that every security check should have a clear purpose and a clear consequence. Understand the risks, review the evidence, fix the problems, and decide what is allowed to move forward.
+
+You can use different tools and apply the same concepts in your own pipeline.
+
+The project code and runbook are linked in the description so you can follow the walkthrough yourself. If this was useful, subscribe and let me know which security check you would add to this pipeline.
+
+Thanks for watching. I'm Akuphe, and I'll see you in the next video.

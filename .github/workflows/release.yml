@@ -1,0 +1,239 @@
+name: Secure release
+on:
+  workflow_dispatch:
+    inputs:
+      include_remediation_demo:
+        description: "Include the two scan-only source exercises for the fix/rescan video"
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: securetask-aws
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: securetask
+          POSTGRES_DB: securetask
+          POSTGRES_PASSWORD: ci-test-only
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U securetask" --health-interval 5s --health-retries 15
+    env: { DB_PASSWORD: ci-test-only }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: "24", cache: npm }
+      - run: npm ci && npm run build && npm test
+      - run: python3 -m unittest discover -s tests -p '*_test.py'
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [semgrep, gitleaks, osv, checkov, hadolint]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Scan source and optional remediation exercises
+        run: |
+          args=(--tools "$TOOL")
+          if [ "$INCLUDE_DEMO" = "true" ]; then args+=(--include-remediation-demo); fi
+          python3 scripts/scan.py "${args[@]}"
+        env:
+          TOOL: ${{ matrix.tool }}
+          INCLUDE_DEMO: ${{ inputs.include_remediation_demo }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: source-${{ matrix.tool }}
+          path: reports/
+          retention-days: 7
+  report:
+    needs: scan
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: security-reporting
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { pattern: source-*, path: reports, merge-multiple: true }
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - run: python3 scripts/install-ssm-plugin.py
+      - run: python3 scripts/report-via-ssm.py --tools semgrep gitleaks osv checkov hadolint --scope "$REPORT_SCOPE"
+        env:
+          DOJO_INSTANCE_ID: ${{ vars.DOJO_INSTANCE_ID }}
+          DOJO_INTEGRATION_SECRET_ARN: ${{ vars.DOJO_INTEGRATION_SECRET_ARN }}
+          REPORT_SCOPE: ${{ inputs.include_remediation_demo && 'remediation' || 'main' }}
+      - name: Block release on source or Checkov findings
+        run: python3 scripts/policy.py
+      - run: echo 'Source reports uploaded. Open DefectDojo using the documented SSM tunnel, then approve or reject the security-review job.' >> "$GITHUB_STEP_SUMMARY"
+  build:
+    name: Build Docker image and scan with Trivy
+    needs: [test, scan, report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: security-review
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - name: Build application Docker image
+        run: docker build --platform linux/amd64 -t securetask:release .
+      - name: Scan built image with open-source Trivy
+        run: python3 scripts/scan.py --tools trivy --image securetask:release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: image-security
+          path: reports/*.json
+          retention-days: 7
+      # Export the exact scanned image. A later job publishes it without rebuilding.
+      - run: docker save securetask:release | gzip > image.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: { name: release-image, path: image.tar.gz, retention-days: 1 }
+  image-report:
+    name: Report container findings and enforce image policy
+    needs: build
+    if: always() && !cancelled() && needs.build.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: security-reporting
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: image-security, path: reports }
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - run: python3 scripts/install-ssm-plugin.py
+      - run: python3 scripts/report-via-ssm.py --tools trivy --scope image
+        env:
+          DOJO_INSTANCE_ID: ${{ vars.DOJO_INSTANCE_ID }}
+          DOJO_INTEGRATION_SECRET_ARN: ${{ vars.DOJO_INTEGRATION_SECRET_ARN }}
+      - name: Block ECR publishing on failed image policy
+        run: python3 scripts/policy.py --tools trivy
+  publish:
+    name: Push scanned image to Amazon ECR
+    needs: [build, image-report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: security-publish
+    permissions: { contents: read }
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: release-image, path: /tmp/release-image }
+      - run: gunzip -c /tmp/release-image/image.tar.gz | docker load
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Publish scanned image
+        id: push
+        env:
+          REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          set -euo pipefail
+          registry="${REPOSITORY_URL%%/*}"
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "$registry"
+          tag="git-${GITHUB_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag securetask:release "$REPOSITORY_URL:$tag"
+          docker push "$REPOSITORY_URL:$tag"
+          repository="${REPOSITORY_URL#*/}"
+          digest=$(aws ecr describe-images --repository-name "$repository" --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+          echo "image=$REPOSITORY_URL@$digest" >> "$GITHUB_OUTPUT"
+          docker logout "$registry"
+  staging:
+    name: Deploy staging for inspection
+    needs: publish
+    permissions: { contents: read }
+    uses: ./.github/workflows/deploy.yml
+    with: { environment: staging, image: "${{ needs.publish.outputs.image }}" }
+    secrets: inherit
+  runtime:
+    name: Scan staging with ZAP
+    needs: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - run: python3 scripts/zap.py "$STAGING_URL"
+        env: { STAGING_URL: "${{ vars.STAGING_URL }}" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: { name: runtime-security, path: reports/, retention-days: 7 }
+  runtime-report:
+    name: Report staging findings and enforce policy
+    needs: runtime
+    if: always() && !cancelled() && needs.runtime.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: security-reporting
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: runtime-security, path: reports }
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - run: python3 scripts/install-ssm-plugin.py
+      - run: python3 scripts/report-via-ssm.py --tools zap --scope runtime
+        env:
+          DOJO_INSTANCE_ID: ${{ vars.DOJO_INSTANCE_ID }}
+          DOJO_INTEGRATION_SECRET_ARN: ${{ vars.DOJO_INTEGRATION_SECRET_ARN }}
+      - run: python3 scripts/policy.py --tools zap
+  staging-review:
+    name: Staging ready for your review
+    needs: [publish, staging, runtime, runtime-report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: read, actions: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Verify required reviewer and publish staging checklist
+        run: python3 scripts/release_review.py staging-ready --url "$STAGING_URL" --image "$IMAGE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+  production:
+    name: Approve production after staging inspection
+    needs: [publish, staging-review]
+    permissions: { contents: read }
+    uses: ./.github/workflows/deploy.yml
+    with:
+      { environment: production, image: "${{ needs.publish.outputs.image }}" }
+    secrets: inherit

@@ -1,0 +1,10 @@
+{
+  "block_severities": [
+    "Critical",
+    "High"
+  ],
+  "always_block_tools": [
+    "gitleaks"
+  ],
+  "exceptions": []
+}

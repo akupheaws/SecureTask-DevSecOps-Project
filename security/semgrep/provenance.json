@@ -1,0 +1,72 @@
+[
+  {
+    "file": "express-jwt-hardcoded-secret.yaml",
+    "sha256": "873fb9a36319838d0d70cb6bc01279814b1c2e3e28dd3cd8e21c1ee9f0ae25ff",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "cors-misconfiguration.yaml",
+    "sha256": "97453880350c250408af9d7ce0c8ff177acf1f4419ca3f75a9c2583e1748e180",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-vm2-injection.yaml",
+    "sha256": "1a97256d1e9ef8a7ca583eea8ae5d55e3d39184aa8bc77db69b5f51ed69f4370",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-xml2json-xxe.yaml",
+    "sha256": "ffd2410ced3c3e111cfb9dddf680d16fc49f456cab32cb559270bcd117606a83",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-data-exfiltration.yaml",
+    "sha256": "990263632cc239dcec752f396492a77be0784d2cc9e882f1f1453321e302c82d",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-phantom-injection.yaml",
+    "sha256": "ed0d30cbb9e0d2be43a991a4788845f14a5bb25ff2829c41355e11bc7ae8f841",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-vm-injection.yaml",
+    "sha256": "ae73d6c55ba88fb5d13110fba82f33d7c152c6f6ce13f86df9dc2c9edb3f368b",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-expat-xxe.yaml",
+    "sha256": "f03645ff22d02ed58fffcb6647009168359a5b4854e46f2e021a4eaa132fa591",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "x-frame-options-misconfiguration.yaml",
+    "sha256": "04de6503bb2f93da5abf75fa6f4535681ff3eda05597c8ae1d708df898197ed1",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "require-request.yaml",
+    "sha256": "d62c5837e4ff26b67ff6df494ba8cf135ae902309273875480c6560c3af3ef79",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-wkhtml-injection.yaml",
+    "sha256": "5bbfcf24aead0373e0cf75aff64006c3f37e920d1a2e36a0a70c76d3c4814cb4",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-insecure-template-usage.yaml",
+    "sha256": "9d7b08fd25478ca520eb0835f8aa3b39f252731df15018c226eef9695819bbc1",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-puppeteer-injection.yaml",
+    "sha256": "c3e4dc920e40889f2ac6f151c0fa73f4460b5af6f555996dc7c1e16efd7f9a3f",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  },
+  {
+    "file": "express-sandbox-injection.yaml",
+    "sha256": "40fbb1a8b591cf543a0814c7d8848bf9297093fd78061efb6d62270ba115de38",
+    "source": "https://github.com/semgrep/semgrep-rules/tree/develop/javascript/express/security"
+  }
+]

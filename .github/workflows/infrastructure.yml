@@ -1,0 +1,130 @@
+name: Provision AWS infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      aws_account_id:
+        description: "12-digit AWS sandbox account containing this project"
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: securetask-aws
+  cancel-in-progress: false
+jobs:
+  infrastructure-security:
+    name: Check Terraform before any AWS provisioning
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Scan all Terraform roots with Checkov and custom policies
+        run: python3 scripts/scan.py --tools checkov
+      - name: Block bootstrap and provisioning on infrastructure findings
+        run: python3 scripts/policy.py --tools checkov
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: infrastructure-preflight-security, path: reports/, retention-days: 7}
+  configure:
+    needs: infrastructure-security
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Check required repository secrets
+        env:
+          ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ADMIN_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          test -n "$ACCESS_KEY" || { echo 'Missing AWS_ACCESS_KEY_ID repository secret'; exit 1; }
+          test -n "$SECRET_KEY" || { echo 'Missing AWS_SECRET_ACCESS_KEY repository secret'; exit 1; }
+          test -n "$ADMIN_TOKEN" || { echo 'Missing REPO_ADMIN_TOKEN repository secret'; exit 1; }
+      - name: Configure approval environments before AWS provisioning
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          REVIEWER: ${{ vars.PIPELINE_REVIEWER || github.repository_owner }}
+        run: python3 scripts/configure-github.py "$REPOSITORY" --reviewer "$REVIEWER" --environments-only
+  plan:
+    needs: configure
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: infrastructure
+    outputs:
+      bucket: ${{ steps.bootstrap.outputs.bucket }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with: {terraform_version: "1.15.8", terraform_wrapper: false}
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Check state bucket, create if missing, restore bootstrap state
+        id: bootstrap
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/bootstrap_ci.py --account "$ACCOUNT" --repository "$REPOSITORY"
+      - name: Initialize remote backend and plan all platform resources
+        env:
+          STATE_BUCKET: ${{ steps.bootstrap.outputs.bucket }}
+          TF_VAR_github_repository: ${{ github.repository }}
+          TF_VAR_allow_http_demo: "true"
+        run: |
+          terraform -chdir=infra/platform init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="key=platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+          terraform -chdir=infra/platform plan -input=false -out=platform.tfplan
+          terraform -chdir=infra/platform show -json platform.tfplan > reports-plan.json
+          echo 'Review the Terraform plan in this job before approving apply. Bootstrap may have created the protected state bucket.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Scan the resolved Terraform plan
+        run: python3 scripts/scan-plan.py
+      - name: Enforce infrastructure security policy
+        run: python3 scripts/policy.py --tools checkov
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: infrastructure-security, path: reports/, retention-days: 1}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: terraform-plan, path: infra/platform/platform.tfplan, retention-days: 1}
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: infrastructure
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: terraform-plan, path: infra/platform}
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with: {terraform_version: "1.15.8", terraform_wrapper: false}
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Apply the reviewed platform plan
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          STATE_BUCKET: ${{ needs.plan.outputs.bucket }}
+        run: |
+          ACTUAL_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+          [[ "$ACCOUNT" =~ ^[0-9]{12}$ && "$ACTUAL_ACCOUNT" == "$ACCOUNT" ]] || { echo 'AWS identity does not match the selected account'; exit 1; }
+          terraform -chdir=infra/platform init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="key=platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+          terraform -chdir=infra/platform apply -input=false platform.tfplan
+      - name: Wait for DefectDojo and configure its private integration
+        run: python3 scripts/wait-dojo.py
+      - name: Publish AWS outputs as GitHub repository variables
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          STATE_BUCKET: ${{ needs.plan.outputs.bucket }}
+        run: python3 scripts/configure-github.py "$REPOSITORY" --bucket "$STATE_BUCKET"
