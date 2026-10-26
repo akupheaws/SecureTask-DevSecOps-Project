@@ -260,12 +260,6 @@ The GitHub repository, workflow artifacts, dedicated provisioning IAM user, and 
 └── Dockerfile            # Multi-stage application image
 ```
 
-## Further reading
-
-- [Complete Project Book](docs/PROJECT-BOOK.md) — ordered AWS setup, approvals, DefectDojo access, remediation, troubleshooting, and teardown.
-- [Infrastructure security demonstration](docs/INFRASTRUCTURE-SECURITY-DEMO.md) — the Checkov failure-and-fix walkthrough.
-- [Detailed architecture notes](docs/architecture.md) — service ownership, deployment boundaries, and runtime design.
-- [Docker Compose documentation](https://docs.docker.com/compose/gettingstarted/) — Compose startup, logs, health checks, and volumes.
 
 ---
 
