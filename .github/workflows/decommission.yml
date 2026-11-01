@@ -26,11 +26,10 @@ jobs:
         with: {persist-credentials: false}
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with: {terraform_version: "1.15.8", terraform_wrapper: false}
-      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          role-to-assume: arn:aws:iam::430986758702:role/OIDC
           aws-region: us-east-1
       - name: Review all four Terraform roots
         run: python3 scripts/decommission.py plan --account "$ACCOUNT" --bucket "${BUCKET:-securetask-state-$ACCOUNT}" --repository "$REPOSITORY" --confirmation "$CONFIRMATION"
