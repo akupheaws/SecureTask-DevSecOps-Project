@@ -15,7 +15,7 @@ on:
         type: string
 
       diagnostic_only:
-        description: "Test OIDC authentication only. Do not destroy infrastructure."
+        description: "Test OIDC only. Do not destroy infrastructure."
         required: true
         type: boolean
         default: true
@@ -29,6 +29,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ==========================================
+  # JOB 1: PLAN AND OIDC DIAGNOSTICS
+  # ==========================================
   plan:
     name: Review infrastructure decommission
     if: github.ref == 'refs/heads/main'
@@ -37,47 +40,41 @@ jobs:
     environment: infrastructure-plan
 
     steps:
-      # --------------------------------------
-      # 1. CHECKOUT REPOSITORY
-      # --------------------------------------
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
 
-      # --------------------------------------
-      # 2. VALIDATE ACCOUNT INPUT
-      # --------------------------------------
-      - name: Validate requested AWS account
+      # 2. Validate AWS account
+      - name: Validate AWS account input
         env:
           ACCOUNT: ${{ inputs.aws_account_id }}
         run: |
           set -euo pipefail
 
           if [[ "$ACCOUNT" != "430986758702" ]]; then
-            echo "::error::Unexpected AWS account ID."
+            echo "::error::Invalid AWS account ID."
             exit 1
           fi
 
-          echo "Requested AWS account validated."
+          echo "AWS account input validated."
 
-      # --------------------------------------
-      # 3. DIAGNOSE GITHUB OIDC IDENTITY
-      # --------------------------------------
-      - name: Inspect GitHub OIDC token claims
+      # 3. Inspect GitHub OIDC token claims
+      - name: Inspect GitHub OIDC identity
         uses: actions/github-script@v7
         with:
           script: |
             const token = await core.getIDToken('sts.amazonaws.com');
 
-            const payload = token.split('.')[1];
-
             const claims = JSON.parse(
-              Buffer.from(payload, 'base64url').toString('utf8')
+              Buffer.from(
+                token.split('.')[1],
+                'base64url'
+              ).toString('utf8')
             );
 
             core.info('========== OIDC DIAGNOSTICS ==========');
-
             core.info(`Issuer: ${claims.iss}`);
             core.info(`Audience: ${claims.aud}`);
             core.info(`Subject: ${claims.sub}`);
@@ -85,12 +82,9 @@ jobs:
             core.info(`Repository ID: ${claims.repository_id}`);
             core.info(`Owner ID: ${claims.repository_owner_id}`);
             core.info(`Git Ref: ${claims.ref}`);
-
             core.info('======================================');
 
-      # --------------------------------------
-      # 4. AUTHENTICATE TO AWS USING OIDC
-      # --------------------------------------
+      # 4. Authenticate to AWS using OIDC
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -98,21 +92,14 @@ jobs:
           aws-region: us-east-1
           role-session-name: GitHubActionsDecommissionPlan
           audience: sts.amazonaws.com
-          allowed-account-ids: "430986758702"
           retry-max-attempts: 1
 
-      # --------------------------------------
-      # 5. VERIFY AWS AUTHENTICATION
-      # --------------------------------------
+      # 5. Verify AWS identity
       - name: Verify AWS authentication
         env:
           ACCOUNT: ${{ inputs.aws_account_id }}
         run: |
           set -euo pipefail
-
-          echo "Checking AWS identity..."
-
-          aws sts get-caller-identity
 
           ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
             --query Account \
@@ -123,11 +110,18 @@ jobs:
             exit 1
           fi
 
+          aws sts get-caller-identity
           echo "AWS OIDC authentication successful."
 
-      # --------------------------------------
-      # 6. SETUP TERRAFORM
-      # --------------------------------------
+      # 6. End safely if diagnostic mode enabled
+      - name: OIDC diagnostic complete
+        if: ${{ inputs.diagnostic_only }}
+        run: |
+          echo "OIDC authentication test completed."
+          echo "Terraform operations are disabled."
+          echo "No infrastructure will be destroyed."
+
+      # 7. Setup Terraform
       - name: Setup Terraform
         if: ${{ !inputs.diagnostic_only }}
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
@@ -135,9 +129,7 @@ jobs:
           terraform_version: "1.15.8"
           terraform_wrapper: false
 
-      # --------------------------------------
-      # 7. VALIDATE DECOMMISSION CONFIRMATION
-      # --------------------------------------
+      # 8. Validate destroy confirmation
       - name: Validate decommission confirmation
         if: ${{ !inputs.diagnostic_only }}
         env:
@@ -152,9 +144,7 @@ jobs:
 
           echo "Decommission confirmation validated."
 
-      # --------------------------------------
-      # 8. REVIEW TERRAFORM RESOURCES
-      # --------------------------------------
+      # 9. Review Terraform resources
       - name: Review all four Terraform roots
         if: ${{ !inputs.diagnostic_only }}
         run: |
@@ -169,9 +159,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           CONFIRMATION: ${{ inputs.confirmation }}
 
-      # --------------------------------------
-      # 9. UPLOAD REVIEW ARTIFACT
-      # --------------------------------------
+      # 10. Upload Terraform review artifact
       - name: Upload decommission review
         if: ${{ !inputs.diagnostic_only }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -181,10 +169,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # ========================================
-  # DESTROY JOB
-  # ========================================
-
+  # ==========================================
+  # JOB 2: DESTROY INFRASTRUCTURE
+  # ==========================================
   destroy:
     name: Destroy project infrastructure
     needs: plan
@@ -194,35 +181,66 @@ jobs:
     environment: decommission
 
     steps:
-      # --------------------------------------
-      # 1. CHECKOUT REPOSITORY
-      # --------------------------------------
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
 
-      # --------------------------------------
-      # 2. DOWNLOAD REVIEW ARTIFACT
-      # --------------------------------------
+      # 2. Validate confirmation
+      - name: Validate destruction confirmation
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$ACCOUNT" != "430986758702" ]]; then
+            echo "::error::Unexpected AWS account."
+            exit 1
+          fi
+
+          if [[ "$CONFIRMATION" != "DESTROY securetask" ]]; then
+            echo "::error::Invalid destruction confirmation."
+            exit 1
+          fi
+
+      # 3. Download review artifact
       - name: Download decommission review
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: decommission-review
           path: reports/decommission
 
-      # --------------------------------------
-      # 3. SETUP TERRAFORM
-      # --------------------------------------
+      # 4. Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
           terraform_version: "1.15.8"
           terraform_wrapper: false
 
-      # --------------------------------------
-      # 4. AUTHENTICATE USING AWS OIDC
-      # --------------------------------------
+      # 5. Inspect destroy environment OIDC claims
+      - name: Inspect GitHub OIDC identity
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+
+            const claims = JSON.parse(
+              Buffer.from(
+                token.split('.')[1],
+                'base64url'
+              ).toString('utf8')
+            );
+
+            core.info('========== DESTROY OIDC ==========');
+            core.info(`Audience: ${claims.aud}`);
+            core.info(`Subject: ${claims.sub}`);
+            core.info(`Repository: ${claims.repository}`);
+            core.info(`Git Ref: ${claims.ref}`);
+            core.info('==================================');
+
+      # 6. Authenticate to AWS using OIDC
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -230,49 +248,28 @@ jobs:
           aws-region: us-east-1
           role-session-name: GitHubActionsDecommissionDestroy
           audience: sts.amazonaws.com
-          allowed-account-ids: "430986758702"
           retry-max-attempts: 1
 
-      # --------------------------------------
-      # 5. VERIFY AWS ACCOUNT
-      # --------------------------------------
+      # 7. Verify AWS account
       - name: Verify AWS authentication
         env:
           ACCOUNT: ${{ inputs.aws_account_id }}
         run: |
           set -euo pipefail
 
-          aws sts get-caller-identity
-
           ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
             --query Account \
             --output text)
 
-          if [[ "$ACTUAL_ACCOUNT" != "430986758702" ]] || \
-             [[ "$ACTUAL_ACCOUNT" != "$ACCOUNT" ]]; then
+          if [[ "$ACTUAL_ACCOUNT" != "$ACCOUNT" ]]; then
             echo "::error::AWS account mismatch."
             exit 1
           fi
 
+          aws sts get-caller-identity
           echo "AWS authentication successful."
 
-      # --------------------------------------
-      # 6. VALIDATE CONFIRMATION
-      # --------------------------------------
-      - name: Validate decommission confirmation
-        env:
-          CONFIRMATION: ${{ inputs.confirmation }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$CONFIRMATION" != "DESTROY securetask" ]]; then
-            echo "::error::Invalid confirmation."
-            exit 1
-          fi
-
-      # --------------------------------------
-      # 7. DESTROY INFRASTRUCTURE
-      # --------------------------------------
+      # 8. Destroy resources
       - name: Destroy reviewed resources and project data
         run: |
           python3 scripts/decommission.py destroy \
@@ -286,9 +283,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           CONFIRMATION: ${{ inputs.confirmation }}
 
-      # --------------------------------------
-      # 8. UPLOAD DECOMMISSION RESULTS
-      # --------------------------------------
+      # 9. Upload results
       - name: Upload decommission result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
