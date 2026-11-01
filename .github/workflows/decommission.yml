@@ -1,4 +1,6 @@
+
 name: Decommission all project infrastructure
+
 on:
   workflow_dispatch:
     inputs:
@@ -10,67 +12,176 @@ on:
         description: "Type DESTROY securetask (permanently deletes data and state)"
         required: true
         type: string
+
 permissions:
   contents: read
   id-token: write
+
 concurrency:
   group: securetask-aws
   cancel-in-progress: false
+
 jobs:
   plan:
+    name: Review infrastructure decommission
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: infrastructure-plan
+
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with: {persist-credentials: false}
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
-        with: {terraform_version: "1.15.8", terraform_wrapper: false}
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::430986758702:role/OIDC
           aws-region: us-east-1
+          role-session-name: GitHubActionsDecommissionPlan
+
+      - name: Verify AWS authentication and account
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+        run: |
+          set -euo pipefail
+
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+          if [[ "$ACCOUNT" != "430986758702" ]]; then
+            echo "::error::Unexpected requested AWS account."
+            exit 1
+          fi
+
+          if [[ "$ACTUAL_ACCOUNT" != "$ACCOUNT" ]]; then
+            echo "::error::AWS account mismatch."
+            exit 1
+          fi
+
+          echo "AWS authentication successful."
+
+      - name: Validate decommission confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$CONFIRMATION" != "DESTROY securetask" ]]; then
+            echo "::error::Invalid decommission confirmation."
+            exit 1
+          fi
+
+          echo "Decommission confirmation validated."
+
       - name: Review all four Terraform roots
-        run: python3 scripts/decommission.py plan --account "$ACCOUNT" --bucket "${BUCKET:-securetask-state-$ACCOUNT}" --repository "$REPOSITORY" --confirmation "$CONFIRMATION"
+        run: |
+          python3 scripts/decommission.py plan \
+            --account "$ACCOUNT" \
+            --bucket "${BUCKET:-securetask-state-$ACCOUNT}" \
+            --repository "$REPOSITORY" \
+            --confirmation "$CONFIRMATION"
         env:
           ACCOUNT: ${{ inputs.aws_account_id }}
           BUCKET: ${{ vars.TF_STATE_BUCKET }}
           REPOSITORY: ${{ github.repository }}
           CONFIRMATION: ${{ inputs.confirmation }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+
+      - name: Upload decommission review artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: decommission-review
           path: reports/decommission/
+          if-no-files-found: error
           retention-days: 1
+
   destroy:
+    name: Destroy project infrastructure
     needs: plan
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: decommission
+
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with: {persist-credentials: false}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: decommission-review, path: reports/decommission}
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
-        with: {terraform_version: "1.15.8", terraform_wrapper: false}
-      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          persist-credentials: false
+
+      - name: Download decommission review artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: decommission-review
+          path: reports/decommission
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::430986758702:role/OIDC
           aws-region: us-east-1
+          role-session-name: GitHubActionsDecommissionDestroy
+
+      - name: Verify AWS authentication and account
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+        run: |
+          set -euo pipefail
+
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+          if [[ "$ACCOUNT" != "430986758702" ]]; then
+            echo "::error::Unexpected requested AWS account."
+            exit 1
+          fi
+
+          if [[ "$ACTUAL_ACCOUNT" != "$ACCOUNT" ]]; then
+            echo "::error::AWS account mismatch."
+            exit 1
+          fi
+
+          echo "AWS authentication successful."
+
+      - name: Validate decommission confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$CONFIRMATION" != "DESTROY securetask" ]]; then
+            echo "::error::Invalid decommission confirmation."
+            exit 1
+          fi
+
       - name: Destroy reviewed resources and project data
-        run: python3 scripts/decommission.py destroy --account "$ACCOUNT" --bucket "${BUCKET:-securetask-state-$ACCOUNT}" --repository "$REPOSITORY" --confirmation "$CONFIRMATION"
+        run: |
+          python3 scripts/decommission.py destroy \
+            --account "$ACCOUNT" \
+            --bucket "${BUCKET:-securetask-state-$ACCOUNT}" \
+            --repository "$REPOSITORY" \
+            --confirmation "$CONFIRMATION"
         env:
           ACCOUNT: ${{ inputs.aws_account_id }}
           BUCKET: ${{ vars.TF_STATE_BUCKET }}
           REPOSITORY: ${{ github.repository }}
           CONFIRMATION: ${{ inputs.confirmation }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+
+      - name: Upload decommission result
         if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: decommission-result
           path: reports/decommission/
